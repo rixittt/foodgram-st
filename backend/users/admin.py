@@ -16,13 +16,12 @@ class CustomUserAdmin(BaseUserAdmin):
     search_fields = ('username', 'first_name', 'last_name', 'email')
 
     def get_queryset(self, request):
-        queryset = super().get_queryset(request).prefetch_related('recipes')
-        queryset = queryset.annotate(
+        queryset = super().get_queryset(request)
+        return queryset.annotate(
             _recipes_count=Count('recipes', distinct=True),
             _subscriptions_count=Count('subscribers', distinct=True),
             _subscribers_count=Count('authors', distinct=True),
-        ).prefetch_related('subscribers__author', 'authors__user')
-        return queryset
+        )
 
     @admin.display(description='ФИО')
     def full_name(self, obj):
@@ -40,15 +39,15 @@ class CustomUserAdmin(BaseUserAdmin):
 
     @admin.display(description='Рецептов')
     def recipes_count(self, obj):
-        return obj.recipes.count()
+        return obj._recipes_count
 
     @admin.display(description='Подписок')
     def subscriptions_count(self, obj):
-        return obj.subscribers.count()
+        return obj._subscriptions_count
 
     @admin.display(description='Подписчиков')
     def subscribers_count(self, obj):
-        return obj.authors.count()
+        return obj._subscribers_count
 
 
 @admin.register(UserSubscription)

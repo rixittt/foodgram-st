@@ -1,5 +1,3 @@
-import os
-
 from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
@@ -11,11 +9,11 @@ class Ingredient(models.Model):
     name = models.CharField(
         'Название',
         unique=True,
-        max_length=128
+        max_length=128,
     )
     measurement_unit = models.CharField(
         'Единица измерения',
-        max_length=64
+        max_length=64,
     )
 
     class Meta:
@@ -30,33 +28,33 @@ class Ingredient(models.Model):
 class Recipe(models.Model):
     name = models.CharField(
         max_length=256,
-        verbose_name='Название'
+        verbose_name='Название',
     )
     author = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        verbose_name='Автор'
+        verbose_name='Автор',
     )
     text = models.TextField(verbose_name='Описание')
     pub_date = models.DateTimeField(
         auto_now_add=True,
-        verbose_name='Дата публикации'
+        verbose_name='Дата публикации',
     )
     cooking_time = models.PositiveSmallIntegerField(
         verbose_name='Время приготовления (мин)',
         validators=[
             MinValueValidator(1),
-            MaxValueValidator(1440)
-        ]
+            MaxValueValidator(1440),
+        ],
     )
     ingredients = models.ManyToManyField(
         Ingredient,
         through='RecipeIngredient',
-        verbose_name='Продукты'
+        verbose_name='Продукты',
     )
     image = models.ImageField(
         upload_to='recipes/images/',
-        verbose_name='Изображение'
+        verbose_name='Изображение',
     )
 
     def delete(self, *args, **kwargs):
@@ -79,28 +77,28 @@ class RecipeIngredient(models.Model):
         Recipe,
         on_delete=models.CASCADE,
         related_name='recipe_ingredients',
-        verbose_name='Рецепт'
+        verbose_name='Рецепт',
     )
     ingredient = models.ForeignKey(
         Ingredient,
         on_delete=models.CASCADE,
         related_name='ingredient_recipes',
-        verbose_name='Продукт'
+        verbose_name='Продукт',
     )
     amount = models.PositiveSmallIntegerField(
         verbose_name='Количество',
         validators=[
             MinValueValidator(1),
-            MaxValueValidator(10000)
-        ]
+            MaxValueValidator(10000),
+        ],
     )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=['recipe', 'ingredient'],
-                name='unique_recipe_ingredient'
-            )
+                name='unique_recipe_ingredient',
+            ),
         ]
         ordering = ('recipe', 'ingredient')
         verbose_name = 'Продукт рецепта'
@@ -115,13 +113,13 @@ class BaseUserRecipeRelation(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name='%(class)s_links',
-        verbose_name='Пользователь'
+        verbose_name='Пользователь',
     )
     recipe = models.ForeignKey(
         Recipe,
         on_delete=models.CASCADE,
         related_name='%(class)s_by_users',
-        verbose_name='Рецепт'
+        verbose_name='Рецепт',
     )
 
     class Meta:
@@ -129,8 +127,8 @@ class BaseUserRecipeRelation(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=['user', 'recipe'],
-                name='%(class)s_unique_user_recipe'
-            )
+                name='%(class)s_unique_user_recipe',
+            ),
         ]
         ordering = ('-id',)
 

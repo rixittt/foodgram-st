@@ -7,10 +7,12 @@ from rest_framework import serializers
 from djoser.serializers import UserSerializer as DjoserUserSerializer
 
 from recipes.models import (
-    FoodRecipe,
-    FoodIngredient,
-    FoodRecipeIngredient
+    Recipe,
+    Ingredient,
+    RecipeIngredient
 )
+
+from users.models import UserSubscription
 
 User = get_user_model()
 
@@ -33,7 +35,7 @@ class CustomBase64ImageField(serializers.ImageField):
 
 class IngredientSerializer(serializers.ModelSerializer):
     class Meta:
-        model = FoodIngredient
+        model = Ingredient
         fields = ('id', 'name', 'measurement_unit')
 
 
@@ -45,20 +47,20 @@ class IngredientAmountSerializer(serializers.ModelSerializer):
     )
 
     class Meta:
-        model = FoodRecipeIngredient
+        model = RecipeIngredient
         fields = ('id', 'name', 'measurement_unit', 'amount')
         read_only_fields = fields
 
 
 class RecipeIngredientCreateSerializer(serializers.ModelSerializer):
     id = serializers.PrimaryKeyRelatedField(
-        queryset=FoodIngredient.objects.all(),
+        queryset=Ingredient.objects.all(),
         source='ingredient'
     )
     amount = serializers.IntegerField(min_value=1)
 
     class Meta:
-        model = FoodRecipeIngredient
+        model = RecipeIngredient
         fields = ('id', 'amount')
 
 
@@ -74,8 +76,8 @@ class ExtendedUserSerializer(DjoserUserSerializer):
         )
 
     def get_is_subscribed(self, user):
-        req = self.context['request']
-        return req.user.is_authenticated and req.user.subscribers.filter(author=user).exists()
+        request = self.context['request']
+        return request.user.is_authenticated and request.user.subscribers.filter(author=user).exists()
 
 
 class UserAvatarSerializer(serializers.ModelSerializer):
@@ -88,7 +90,7 @@ class UserAvatarSerializer(serializers.ModelSerializer):
 
 class RecipeShortSerializer(serializers.ModelSerializer):
     class Meta:
-        model = FoodRecipe
+        model = Recipe
         fields = ('id', 'name', 'image', 'cooking_time')
         read_only_fields = fields
 
@@ -105,7 +107,7 @@ class RecipeSerializer(serializers.ModelSerializer):
     is_in_shopping_cart = serializers.BooleanField(default=False)
 
     class Meta:
-        model = FoodRecipe
+        model = Recipe
         fields = (
             'id', 'name', 'text', 'author',
             'image', 'ingredients', 'cooking_time',
@@ -120,7 +122,7 @@ class RecipeCreateUpdateSerializer(serializers.ModelSerializer):
     cooking_time = serializers.IntegerField(min_value=1)
 
     class Meta:
-        model = FoodRecipe
+        model = Recipe
         fields = ('id', 'name', 'text', 'ingredients', 'image', 'cooking_time')
 
     def create(self, validated_data):
@@ -152,8 +154,8 @@ class RecipeCreateUpdateSerializer(serializers.ModelSerializer):
 
     def recreate_ingredients(self, recipe, ingredients):
         recipe.recipe_ingredients.all().delete()
-        FoodRecipeIngredient.objects.bulk_create(
-            FoodRecipeIngredient(
+        RecipeIngredient.objects.bulk_create(
+            RecipeIngredient(
                 recipe=recipe,
                 ingredient=ingredient['ingredient'],
                 amount=ingredient['amount']
@@ -167,10 +169,7 @@ class RecipeCreateUpdateSerializer(serializers.ModelSerializer):
 
 class GetUserSubscriptionSerializer(ExtendedUserSerializer):
     recipes = serializers.SerializerMethodField()
-    recipes_count = serializers.IntegerField(
-        source='recipes.count',
-        read_only=True
-    )
+    recipes_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = User
@@ -190,16 +189,10 @@ class GetUserSubscriptionSerializer(ExtendedUserSerializer):
         request = self.context.get('request')
         limit = request.query_params.get('recipes_limit') if request else None
 
-        if limit is not None:
-            try:
-                limit = int(limit)
-                if limit < 0:
-                    raise ValueError
+        if limit is not None and limit.isdigit():
+            limit = int(limit)
+            if limit > 0:
                 recipes = user.recipes.all()[:limit]
-            except (ValueError, TypeError):
-                raise serializers.ValidationError({
-                    'recipes_limit': 'Параметр recipes_limit должен быть положительным целым числом.'
-                })
         else:
             recipes = user.recipes.all()
 
@@ -209,3 +202,22 @@ class GetUserSubscriptionSerializer(ExtendedUserSerializer):
             context=self.context
         )
         return serializer.data
+
+
+class SubscriptionCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserSubscription
+        fields = ('user', 'author')
+
+    def validate(self, data):
+        if data['user'] == data['author']:
+            raise serializers.ValidationError(
+                'Нельзя подписаться на самого себя'
+            )
+        if UserSubscription.objects.filter(
+            user=data['user'], author=data['author']
+        ).exists():
+            raise serializers.ValidationError(
+                'Вы уже подписаны на этого пользователя'
+            )
+        return data

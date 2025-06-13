@@ -1,6 +1,6 @@
 import django_filters
 from django.contrib.auth import get_user_model
-from recipes.models import FoodIngredient, FoodRecipe
+from recipes.models import Ingredient, Recipe
 
 
 User = get_user_model()
@@ -10,7 +10,7 @@ class IngredientSearchFilter(django_filters.FilterSet):
     name = django_filters.CharFilter(lookup_expr='istartswith')
 
     class Meta:
-        model = FoodIngredient
+        model = Ingredient
         fields = ['name']
 
 
@@ -23,15 +23,15 @@ class RecipeSearchFilter(django_filters.FilterSet):
     is_favorited = django_filters.CharFilter(method='filter_favorite')
 
     class Meta:
-        model = FoodRecipe
+        model = Recipe
         fields = ('author', 'is_favorited', 'is_in_shopping_cart')
 
     def filter_cart(self, queryset, name, value):
         if value and self.request.user.is_authenticated:
-            return queryset.filter(foodshoppingcart_by_users__user=self.request.user)
+            return queryset.filter(shoppingcart_by_users__user=self.request.user)
         return queryset
 
     def filter_favorite(self, queryset, name, value):
         if value == '1' and self.request.user.is_authenticated:
-            return queryset.filter(foodfavoriterecipe_by_users__user=self.request.user)
+            return queryset.filter(favoriterecipe_by_users__user=self.request.user)
         return queryset

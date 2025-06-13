@@ -1,6 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.http import FileResponse
-from django.db.models import OuterRef, Exists, Prefetch, Sum, F
+from django.db.models import OuterRef, Exists, Prefetch, Sum, F, Count
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django_filters.rest_framework import DjangoFilterBackend
@@ -18,11 +18,11 @@ from djoser.views import UserViewSet as DjoserUserViewSet
 
 from users.models import UserSubscription
 from recipes.models import (
-    FoodRecipe,
-    FoodFavoriteRecipe,
-    FoodShoppingCart,
-    FoodIngredient,
-    FoodRecipeIngredient
+    Recipe,
+    FavoriteRecipe,
+    ShoppingCart,
+    Ingredient,
+    RecipeIngredient
 )
 
 from .paginators import CustomPagePagination
@@ -30,11 +30,11 @@ from .permissions import IsOwnerOrReadOnly
 from .serializers import (
     ExtendedUserSerializer,
     UserAvatarSerializer,
-    UserAvatarSerializer,
     IngredientSerializer,
     GetUserSubscriptionSerializer,
     RecipeCreateUpdateSerializer,
-    RecipeSerializer, RecipeShortSerializer
+    RecipeSerializer, RecipeShortSerializer,
+    SubscriptionCreateSerializer
 )
 from .filters import IngredientSearchFilter, RecipeSearchFilter
 from .services.pdf import IngredientPDFExporter
@@ -86,13 +86,6 @@ class UserViewSet(DjoserUserViewSet):
             user.avatar.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @staticmethod
-    def check_self_subscription(user, author):
-        if user == author:
-            raise ValidationError(
-                {'error': 'Нельзя подписаться на самого себя'}
-            )
-
     @action(
         detail=True,
         methods=['post'],
@@ -103,17 +96,12 @@ class UserViewSet(DjoserUserViewSet):
         user = request.user
         author = get_object_or_404(User, id=kwargs['id'])
 
-        self.check_self_subscription(user, author)
-        subscription, created = UserSubscription.objects.get_or_create(
-            user=user,
-            author=author
+        serializer = SubscriptionCreateSerializer(
+            data={'user': user.id, 'author': author.id}
         )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
-        if not created:
-            return Response(
-                {'error': 'Вы уже подписаны на этого автора'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
         return Response(
             GetUserSubscriptionSerializer(
                 author, context={'request': request}
@@ -122,11 +110,16 @@ class UserViewSet(DjoserUserViewSet):
 
     @subscribe.mapping.delete
     def unsubscribe(self, request, *args, **kwargs):
-        get_object_or_404(
-            UserSubscription,
-            user_id=request.user.id,
+        deleted, _ = UserSubscription.objects.filter(
+            user=request.user,
             author_id=kwargs['id']
         ).delete()
+
+        if not deleted:
+            return Response(
+                {'error': 'Вы не подписаны на этого пользователя'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(
@@ -138,12 +131,9 @@ class UserViewSet(DjoserUserViewSet):
     def subscriptions(self, request):
         subscriptions = User.objects.filter(
             authors__user=self.request.user
-        ).prefetch_related(
-            Prefetch(
-                'recipes',
-                queryset=FoodRecipe.objects.all()
-            )
-        )
+        ).annotate(
+            recipes_count=Count('recipes')
+        ).prefetch_related('recipes')
         paginated_subscriptions = self.paginate_queryset(subscriptions)
         serializer = GetUserSubscriptionSerializer(
             paginated_subscriptions,
@@ -157,7 +147,7 @@ class IngredientViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = IngredientSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = IngredientSearchFilter
-    queryset = FoodIngredient.objects.all()
+    queryset = Ingredient.objects.all()
     pagination_class = None
 
 
@@ -170,23 +160,23 @@ class RecipeViewSet(viewsets.ModelViewSet):
     filterset_class = RecipeSearchFilter
 
     def get_queryset(self):
-        base_qs = FoodRecipe.objects.select_related('author').prefetch_related(
+        base_queryset = Recipe.objects.select_related('author').prefetch_related(
             'ingredients', 'recipe_ingredients__ingredient'
         )
         if self.request.user.is_authenticated:
-            base_qs = base_qs.annotate(
+            base_queryset = base_queryset.annotate(
                 is_in_shopping_cart=Exists(
-                    FoodShoppingCart.objects.filter(
+                    ShoppingCart.objects.filter(
                         user=self.request.user, recipe=OuterRef('pk')
                     )
                 ),
                 is_favorited=Exists(
-                    FoodFavoriteRecipe.objects.filter(
+                    FavoriteRecipe.objects.filter(
                         user=self.request.user, recipe=OuterRef('pk')
                     )
                 )
             )
-        return base_qs
+        return base_queryset
 
     @action(
         detail=True,
@@ -196,10 +186,10 @@ class RecipeViewSet(viewsets.ModelViewSet):
     def shopping_cart(self, request, *args, **kwargs):
         if request.method == 'POST':
             return self.create_user_recipe_relation(
-                FoodShoppingCart, self.kwargs['pk']
+                ShoppingCart, self.kwargs['pk']
             )
         return self.delete_user_recipe_relation(
-            FoodShoppingCart, self.kwargs['pk'])
+            ShoppingCart, self.kwargs['pk'])
 
     @action(
         detail=True,
@@ -209,11 +199,11 @@ class RecipeViewSet(viewsets.ModelViewSet):
     def favorite(self, request, *args, **kwargs):
         if request.method == 'POST':
             return self.create_user_recipe_relation(
-                FoodFavoriteRecipe,
+                FavoriteRecipe,
                 self.kwargs['pk']
             )
         return self.delete_user_recipe_relation(
-            FoodFavoriteRecipe,
+            FavoriteRecipe,
             self.kwargs['pk']
         )
 
@@ -223,7 +213,11 @@ class RecipeViewSet(viewsets.ModelViewSet):
         url_path='get-link',
     )
     def get_link(self, request, pk):
-        get_object_or_404(FoodRecipe, id=pk)
+        if not Recipe.objects.filter(id=pk).exists():
+            return Response(
+                {'error': 'Рецепт не найден'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         return Response(
             {
                 'short-link': request.build_absolute_uri(
@@ -255,8 +249,8 @@ class RecipeViewSet(viewsets.ModelViewSet):
     @staticmethod
     def get_all_ingredients_for_shopping(user):
         ingredients = (
-            FoodRecipeIngredient.objects
-            .filter(recipe__foodshoppingcart_by_users__user=user)
+            RecipeIngredient.objects
+            .filter(recipe__shoppingcart_by_users__user=user)
             .values(
                 name=F('ingredient__name'),
                 measurement_unit=F('ingredient__measurement_unit')
@@ -267,7 +261,7 @@ class RecipeViewSet(viewsets.ModelViewSet):
         return ingredients
 
     def create_user_recipe_relation(self, model, recipe_pk):
-        recipe = get_object_or_404(FoodRecipe, pk=recipe_pk)
+        recipe = get_object_or_404(Recipe, pk=recipe_pk)
         if model.objects.filter(
                 user=self.request.user,
                 recipe=recipe

@@ -1,12 +1,13 @@
 import os
+
 from django.contrib.auth import get_user_model
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 
 User = get_user_model()
 
 
-class FoodIngredient(models.Model):
+class Ingredient(models.Model):
     name = models.CharField(
         'Название',
         unique=True,
@@ -26,7 +27,7 @@ class FoodIngredient(models.Model):
         return f'{self.name}, {self.measurement_unit}.'
 
 
-class FoodRecipe(models.Model):
+class Recipe(models.Model):
     name = models.CharField(
         max_length=256,
         verbose_name='Название'
@@ -41,13 +42,16 @@ class FoodRecipe(models.Model):
         auto_now_add=True,
         verbose_name='Дата публикации'
     )
-    cooking_time = models.PositiveIntegerField(
-        verbose_name='Время приготовления',
-        validators=[MinValueValidator(1)]
+    cooking_time = models.PositiveSmallIntegerField(
+        verbose_name='Время приготовления (мин)',
+        validators=[
+            MinValueValidator(1),
+            MaxValueValidator(1440)
+        ]
     )
     ingredients = models.ManyToManyField(
-        FoodIngredient,
-        through='FoodRecipeIngredient',
+        Ingredient,
+        through='RecipeIngredient',
         verbose_name='Продукты'
     )
     image = models.ImageField(
@@ -56,33 +60,39 @@ class FoodRecipe(models.Model):
     )
 
     def delete(self, *args, **kwargs):
-        if self.image and os.path.isfile(self.image.path):
-            os.remove(self.image.path)
+        if self.image:
+            self.image.delete(save=False)
         super().delete(*args, **kwargs)
 
     class Meta:
         default_related_name = 'recipes'
         ordering = ['-pub_date']
-        verbose_name = 'рецепт'
+        verbose_name = 'Рецепт'
         verbose_name_plural = 'Рецепты'
 
+    def __str__(self):
+        return self.name
 
-class FoodRecipeIngredient(models.Model):
+
+class RecipeIngredient(models.Model):
     recipe = models.ForeignKey(
-        FoodRecipe,
+        Recipe,
         on_delete=models.CASCADE,
         related_name='recipe_ingredients',
         verbose_name='Рецепт'
     )
     ingredient = models.ForeignKey(
-        FoodIngredient,
+        Ingredient,
         on_delete=models.CASCADE,
         related_name='ingredient_recipes',
         verbose_name='Продукт'
     )
-    amount = models.PositiveIntegerField(
+    amount = models.PositiveSmallIntegerField(
         verbose_name='Количество',
-        validators=[MinValueValidator(1)]
+        validators=[
+            MinValueValidator(1),
+            MaxValueValidator(10000)
+        ]
     )
 
     class Meta:
@@ -96,6 +106,9 @@ class FoodRecipeIngredient(models.Model):
         verbose_name = 'Продукт рецепта'
         verbose_name_plural = 'Продукты рецепта'
 
+    def __str__(self):
+        return f'{self.ingredient} — {self.amount}'
+
 
 class BaseUserRecipeRelation(models.Model):
     user = models.ForeignKey(
@@ -105,7 +118,7 @@ class BaseUserRecipeRelation(models.Model):
         verbose_name='Пользователь'
     )
     recipe = models.ForeignKey(
-        FoodRecipe,
+        Recipe,
         on_delete=models.CASCADE,
         related_name='%(class)s_by_users',
         verbose_name='Рецепт'
@@ -125,13 +138,13 @@ class BaseUserRecipeRelation(models.Model):
         return f'{self.user} — {self.recipe}'
 
 
-class FoodFavoriteRecipe(BaseUserRecipeRelation):
+class FavoriteRecipe(BaseUserRecipeRelation):
     class Meta(BaseUserRecipeRelation.Meta):
         verbose_name = 'Избранное'
         verbose_name_plural = 'Избранные'
 
 
-class FoodShoppingCart(BaseUserRecipeRelation):
+class ShoppingCart(BaseUserRecipeRelation):
     class Meta(BaseUserRecipeRelation.Meta):
         verbose_name = 'Список покупок'
         verbose_name_plural = 'Списки покупок'

@@ -2,24 +2,23 @@ from django.contrib import admin
 from django.utils.safestring import mark_safe
 
 from .models import (
-    FoodRecipe,
-    FoodIngredient,
-    FoodRecipeIngredient,
-    FoodFavoriteRecipe,
-    FoodShoppingCart
+    Recipe,
+    Ingredient,
+    RecipeIngredient,
+    FavoriteRecipe,
+    ShoppingCart
 )
 
 
 class RecipeIngredientInlineAdmin(admin.TabularInline):
-    model = FoodRecipeIngredient
+    model = RecipeIngredient
     extra = 1
 
 
-@admin.register(FoodRecipe)
+@admin.register(Recipe)
 class FoodRecipeAdmin(admin.ModelAdmin):
     search_fields = ('name', 'author__username')
     list_display = (
-        'id',
         'name',
         'cooking_time',
         'author_name',
@@ -27,14 +26,14 @@ class FoodRecipeAdmin(admin.ModelAdmin):
         'ingredients_list_html',
         'image_preview_html',
     )
+    list_display_links = ('name', 'author_name')
     readonly_fields = ('image_preview_html',)
+    inlines = [RecipeIngredientInlineAdmin]
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related('author').prefetch_related(
+        query_set = super().get_queryset(request)
+        return query_set.select_related('author').prefetch_related(
             'favoriterecipe_by_users',
-            'ingredients',
-            'recipe_ingredients',
             'recipe_ingredients__ingredient'
         )
 
@@ -68,15 +67,15 @@ class FoodRecipeAdmin(admin.ModelAdmin):
         )
 
 
-@admin.register(FoodIngredient)
+@admin.register(Ingredient)
 class FoodIngredientAdmin(admin.ModelAdmin):
     list_display = ('name', 'measurement_unit', 'related_recipes_count')
     search_fields = ('name', 'measurement_unit')
     list_filter = ('measurement_unit',)
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.prefetch_related('ingredient_recipes')
+        query_set = super().get_queryset(request)
+        return query_set.prefetch_related('ingredient_recipes')
 
     @admin.display(description='Число рецептов')
     def related_recipes_count(self, ingredient):
@@ -85,8 +84,12 @@ class FoodIngredientAdmin(admin.ModelAdmin):
 
 class BaseUserRecipeAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'recipe__name')
-    list_select_related = ('user', 'recipe')
     list_display = ('display_user', 'display_recipe')
+    list_display_links = ('display_user', 'display_recipe')
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('user', 'recipe')
 
     @admin.display(description='Пользователь')
     def display_user(self, obj):
@@ -95,3 +98,13 @@ class BaseUserRecipeAdmin(admin.ModelAdmin):
     @admin.display(description='Рецепт')
     def display_recipe(self, obj):
         return obj.recipe.name
+
+
+@admin.register(FavoriteRecipe)
+class FoodFavoriteRecipeAdmin(BaseUserRecipeAdmin):
+    pass
+
+
+@admin.register(ShoppingCart)
+class FoodShoppingCartAdmin(BaseUserRecipeAdmin):
+    pass

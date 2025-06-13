@@ -1,26 +1,32 @@
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
+from django.db.models import Q, F
+
+
+USERNAME_MAX_LENGTH = 150
+EMAIL_MAX_LENGTH = 255
+NAME_MAX_LENGTH = 150
 
 
 class User(AbstractUser):
     email = models.EmailField(
         unique=True,
-        max_length=255,
+        max_length=EMAIL_MAX_LENGTH,
         verbose_name='Email',
     )
     username = models.CharField(
         unique=True,
-        max_length=150,
+        max_length=USERNAME_MAX_LENGTH,
         verbose_name='Логин пользователя',
-        validators=[UnicodeUsernameValidator()]
+        validators=[UnicodeUsernameValidator()],
     )
     first_name = models.CharField(
-        max_length=150,
+        max_length=NAME_MAX_LENGTH,
         verbose_name='Имя',
     )
     last_name = models.CharField(
-        max_length=150,
+        max_length=NAME_MAX_LENGTH,
         verbose_name='Фамилия',
     )
     avatar = models.ImageField(
@@ -61,9 +67,14 @@ class UserSubscription(models.Model):
         ordering = ('id',)
         constraints = [
             models.UniqueConstraint(
-                fields=['user', 'author'], name='unique_subscription'),
+                fields=['user', 'author'],
+                name='unique_subscription'
+            ),
             models.CheckConstraint(
-                check=~models.Q(user=models.F('author')),
+                check=~Q(user=F('author')),
                 name='prevent_self_subscription'
             )
         ]
+
+    def __str__(self):
+        return f'{self.user} подписан на {self.author}'

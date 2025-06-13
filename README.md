@@ -111,7 +111,5 @@ docker compose up
 ---
 
 Автор<br>
-Шакиров Тимур Асхатович<br>
-[GitHub-профиль](https://github.com/rixittt)<br>
+Шакиров Тимур<br>
 Telegram @rixittt<br>
-Email: shakirovtimur2006@mail.com
